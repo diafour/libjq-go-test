@@ -1,0 +1,116 @@
+name: Publish jq images
+on:
+    tags:
+      - 'jq-*'
+
+jobs:
+  publish_jq_images:
+    name: Release
+    strategy:
+      fail-fast: false
+      matrix:
+        flavour:
+          - ubuntu
+          - alpine
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v2
+
+      - name: Prepare env
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            // Tag format should be:
+            //   jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]
+            // jq- is a prefix to distinguish jq image builds from libjq-go related actions.
+            // build_id is an optional custom suffix. It can be a branch name, YY.MM, YY.id, etc.
+            // JQ_GIT_SHA is 8 chars of commit sha.
+            // serial is an optional integer to create new unique git tag and thus rebuild the image.
+            //
+            // For example:
+            // 1. Simple build from commit.
+            //    jq-b6be13d5
+            //  The script will checkout commit b6be13d5 from stedolan/jq and build these images:
+            //   flant/jq:b6be13d5-alpine
+            //   flant/jq:b6be13d5-ubuntu
+            // 2. to rebuild jq-b6be13d5 in the future, add a serial:
+            //   jq-b6be13d5-0
+            // The script will push updated images:
+            //   flant/jq:b6be13d5-alpine
+            //   flant/jq:b6be13d5-ubuntu
+            // 3. Commit is not human friendly, so use build_id as a description:
+            //   jq-dec_literal_number-2353d034-0
+            // The script will checkout tag 'jq-1.6' from stedolan/jq and build these images:
+            //   flant/jq:dec_literal_number-2353d034-alpine
+            //   flant/jq:dec_literal_number-2353d034-ubuntu
+            //
+            // Note: tag for docker image has 7 symbols suffix with OS name.
+            // So the string <build_id>-<JQ_GIT_SHA> will be truncated to 121 symbols.
+            // Also do not use / in git tag.
+            //
+            // Docker documentation:
+            //   A tag name must be valid ASCII and may contain lowercase and uppercase letters,
+            //   digits, underscores, periods and dashes. A tag name may not start with a period
+            //   or a dash and may contain a maximum of 128 characters.
+  
+            // Check tag format.
+
+
+            // Strip jq- and -serial and get sha and buildId.
+
+
+            // Export variables for build action.
+            core.exportVariable("JQ_GIT_SHA", "b6be13d5")
+            core.exportVariable("BUILD_ID", "good-one")
+            core.exportVariable("DOCKER_TAG", "good-one-b6be13d5")
+
+      - name: Check exported vars
+        run: |
+          echo $JQ_GIT_SHA
+          echo $BUILD_ID
+          echo $DOCKER_TAG
+
+      - name: Check
+        run: |
+          echo Check
+
+      - name: Build jq for '${{ matrix.flavour }}'
+        env:
+          FLAVOUR: ${{ matrix.flavour }}
+          IMAGE_NAME: flant/jq
+        run: |
+          echo Build $IMAGE_NAME:$DOCKER_TAG for $FLAVOUR from $JQ_GIT_SHA
+#          : Setup imageTag, appVersion and dockerFile envs and build image
+#          imageTag=
+#          appVersion=
+#          dockerFile=Dockerfile
+#
+#          if [[ ${GITHUB_REF} == "refs/heads/master" ]] ; then
+#            # master branch
+#            imageTag=${IMAGE_NAME}:latest
+#            appVersion=master-${GITHUB_SHA::8}-$FLAVOUR-$(date +'%Y.%m.%d_%H:%M:%S')
+#          else
+#            gitTag=${GITHUB_REF#refs/tags/}
+#            imageTag=${IMAGE_NAME}:${gitTag}
+#            appVersion=${gitTag}
+#          fi
+#
+#          case $FLAVOUR in
+#          alpine3.12)
+#            dockerFile="Dockerfile-alpine3.12"
+#            imageTag=${imageTag}-alpine3.12
+#            ;;
+#          esac
+#
+#          echo Build $imageTag with version $appVersion using ./$dockerFile
+#          docker build --build-arg appVersion=$appVersion -t $imageTag -f $dockerFile .
+#
+#          # save imageTag for docker push
+#          echo ::set-env name=imageTag::${imageTag}
+
+      - name: Push '${{ matrix.flavour }}' image
+        run: |
+          echo Push $IMAGE_NAME:$DOCKER_TAG
+#          #docker login -u ${{ secrets.DOCKER_USER }} -p ${{ secrets.DOCKER_PASS }}
+#          #docker push $imageTag
