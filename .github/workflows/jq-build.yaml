@@ -144,7 +144,7 @@ jobs:
           ./scripts/jq-build/extract-libjq.sh $PUSH_TAGS ./libjq
           LIBJQ_TGZ_ARTIFACT=libjq-${DOCKER_TAG}.tgz
           echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
-          tar zxf $LIBJQ_TGZ_ARTIFACT libjq
+          tar zcf $LIBJQ_TGZ_ARTIFACT libjq
 
 
       - name: Create release
