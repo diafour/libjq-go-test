@@ -60,19 +60,6 @@ jobs:
               return;
             }
 
-            // Ignore jq- and -serial, save buildId and SHA.
-            // match[3] is always a git sha
-            // match[2] is build_id and can be undefined
-            let gitSha = match[2];
-            let buildId = match[3]?match[3]:"";
-            let dockerTag = buildId.substring(0, (buildId.length < 80) ? buildId.length : 80);
-            dockerTag = dockerTag === "" ? gitSha : `${dockerTag}-${gitSha}`;
-
-            // Export variables for build action.
-            core.exportVariable("JQ_GIT_SHA", gitSha)
-            core.exportVariable("BUILD_ID", buildId)
-            core.exportVariable("DOCKER_TAG", dockerTag)
-
   publish_jq_images:
     name: Release
     needs: prepare_env
@@ -86,6 +73,34 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
+      - name: Prepare env
+        uses: actions/github-script@v3
+        with:
+          github-token: ${{secrets.GITHUB_TOKEN}}
+          script: |
+            // No variable export between jobs, so copy-paste from Prepare job.
+            // Check tag format. Fail the job if tag is not in shape.
+            let ref = context.ref;
+            let gitTagRe = /^refs\/tags\/jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
+            let match = gitTagRe.exec(ref);
+            if (match === null) {
+              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]. See .github/workflows/jq-build.yaml`);
+              return;
+            }
+
+            // Ignore jq- and -serial, save buildId and SHA.
+            // match[3] is always a git sha
+            // match[2] is build_id and can be undefined
+            let gitSha = match[2];
+            let buildId = match[3]?match[3]:"";
+            let dockerTag = buildId.substring(0, (buildId.length < 80) ? buildId.length : 80);
+            dockerTag = dockerTag === "" ? gitSha : `${dockerTag}-${gitSha}`;
+
+            // Export variables for build action.
+            core.exportVariable("JQ_GIT_SHA", gitSha)
+            core.exportVariable("BUILD_ID", buildId)
+            core.exportVariable("DOCKER_TAG", dockerTag)
+
       - name: Build jq image for '${{ matrix.flavour }}'
         env:
           FLAVOUR: ${{ matrix.flavour }}
@@ -94,12 +109,9 @@ jobs:
           echo JQ_GIT_SHA=$JQ_GIT_SHA
           echo BUILD_ID=$BUILD_ID
           echo DOCKER_TAG=$DOCKER_TAG
-
-          echo docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $IMAGE_NAME:$DOCKER_TAG -f Dockerfile-$FLAVOUR
-
-          exit 0
-
           DOCKER_TAG=${DOCKER_TAG}-${{matrix.flavour}}
+          echo flavoured_DOCKER_TAG=$DOCKER_TAG
+
           cd /scripts/jq-build
 
           docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $IMAGE_NAME:$DOCKER_TAG -f Dockerfile-$FLAVOUR
@@ -113,8 +125,17 @@ jobs:
 
           # TODO: Publish assets.
 
-      - name: Push '${{ matrix.flavour }}' image
+          echo "PUSH_TAGS=${$IMAGE_NAME:$DOCKER_TAG}" >> $GITHUB_ENV
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
+
+      - name: Push '${{ matrix.flavour }}' image $PUSH_TAGS
         run: |
-          echo Push $IMAGE_NAME:$DOCKER_TAG-${{matrix.flavour}}
-#          #docker login -u ${{ secrets.DOCKER_USER }} -p ${{ secrets.DOCKER_PASS }}
-#          #docker push $imageTag
+          echo Push "'$PUSH_TAGS'"
+          for tag in $(echo $PUSH_TAGS | sed s/-t//g ) ; do
+            docker push $tag
+          done
