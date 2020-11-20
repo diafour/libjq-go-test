@@ -1,4 +1,3 @@
 #!/bin/bash
 
-
-echo Build jq for Windows
+echo TODO: Build jq for Windows
