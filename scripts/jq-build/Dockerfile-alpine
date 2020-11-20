@@ -25,7 +25,7 @@ ARG JQ_GIT_SHA
 RUN /app/checkout.sh $JQ_GIT_SHA /jq
 
 # build libjq and jq binary
-RUN /app/build-linux.sh /jq /out
+RUN /app/build-unix.sh /jq /out
 
 # Final image
 FROM scratch
