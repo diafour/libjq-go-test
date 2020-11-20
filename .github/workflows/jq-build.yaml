@@ -112,16 +112,17 @@ jobs:
           DOCKER_TAG=${DOCKER_TAG}-${{matrix.flavour}}
           echo flavoured_DOCKER_TAG=$DOCKER_TAG
 
-          cd /scripts/jq-build
+          cd ${GITHUB_WORKSPACE}/scripts/jq-build
 
           docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $IMAGE_NAME:$DOCKER_TAG -f Dockerfile-$FLAVOUR
 
-          mkdir -p out/libjq
-          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha out
-          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha out
-          ./extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG ./out/libjq
+          OUT=${GITHUB_WORKSPACE}/out
+          mkdir -p $OUT/libjq
+          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha $OUT
+          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha $OUT
+          ./extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG $OUT/libjq
 
-          find ./out
+          find $OUT
 
           # TODO: Publish assets.
 
