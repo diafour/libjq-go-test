@@ -20,7 +20,7 @@ jobs:
             //   jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]
             // jq- is a prefix to distinguish jq image builds from libjq-go related actions.
             // build_id is an optional custom suffix. It can be a branch name, YY.MM, YY.id, etc.
-            // JQ_GIT_SHA is 8 chars of commit sha.
+            // JQ_GIT_SHA is a required 8 chars of commit sha.
             // serial is an optional integer to create new unique git tag and thus rebuild the image.
             //
             // For example:
@@ -29,11 +29,13 @@ jobs:
             //  The script will checkout commit b6be13d5 from stedolan/jq and build these images:
             //   flant/jq:b6be13d5-alpine
             //   flant/jq:b6be13d5-ubuntu
+            //
             // 2. to rebuild jq-b6be13d5 in the future, add a serial:
             //   jq-b6be13d5-0
-            // The script will push updated images:
+            // The script will build jq again and push updated images:
             //   flant/jq:b6be13d5-alpine
             //   flant/jq:b6be13d5-ubuntu
+            //
             // 3. Commit is not human friendly, so use build_id as a description:
             //   jq-dec_literal_number-2353d034-0
             // The script will checkout tag 'jq-1.6' from stedolan/jq and build these images:
@@ -49,13 +51,12 @@ jobs:
             //   digits, underscores, periods and dashes. A tag name may not start with a period
             //   or a dash and may contain a maximum of 128 characters.
 
-            // Check tag format.
-            // TODO!
+            // Check tag format. Fail the job if tag is not in shape.
             let ref = context.ref;
-            let gitTagRe = /^jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
+            let gitTagRe = /^refs\/tags\/jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
             let match = gitTagRe.exec(ref);
             if (match === null) {
-              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]`);
+              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]. See .github/workflows/jq-build.yaml`);
               return;
             }
 
