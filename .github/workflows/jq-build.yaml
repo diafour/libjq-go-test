@@ -104,7 +104,7 @@ jobs:
       - name: Build jq image for '${{ matrix.flavour }}'
         env:
           FLAVOUR: ${{ matrix.flavour }}
-          IMAGE_NAME: flant/jq
+          IMAGE_NAME: diafour/jq
         run: |
           echo JQ_GIT_SHA=$JQ_GIT_SHA
           echo BUILD_ID=$BUILD_ID
@@ -134,14 +134,14 @@ jobs:
           # TODO move to script create-assets.sh ???
 
           # extract checksum files
-          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha .
+          ./scripts/jq-build/extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha .
           echo "LIBJQ_CHECKSUM_ARTIFACT=libjq.sha" >> $GITHUB_ENV
-          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha .
+          ./scripts/jq-build/extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha .
           echo "ALL_CHECKSUM_ARTIFACT=all.sha" >> $GITHUB_ENV
 
           # create tgz with libjq
           mkdir -p ./libjq
-          ./extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG ./libjq
+          ./scripts/jq-build/extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG ./libjq
           LIBJQ_TGZ_ARTIFACT=libjq-${DOCKER_TAG}.tgz
           echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
           tar zxf $LIBJQ_TGZ_ARTIFACT libjq
