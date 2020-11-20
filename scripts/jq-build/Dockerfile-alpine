@@ -1,0 +1,33 @@
+FROM alpine:3.12 as builder
+
+RUN apk update && \
+    apk add --virtual build-dependencies \
+            build-base \
+            gcc \
+            wget \
+            git \
+            autoconf \
+            automake && \
+    apk add --virtual jq-deps \
+            bison \
+            flex \
+            libtool && \
+    apk add bash
+
+# create directories for scripts, jq sources and output
+RUN mkdir /app /jq /out
+
+COPY checkout.sh /app
+COPY build-linux.sh /app
+
+# Checkout jq commit
+ARG JQ_GIT_SHA
+RUN /app/checkout.sh $JQ_GIT_SHA /jq
+
+# build libjq and jq binary
+RUN /app/build-linux.sh /jq /out
+
+# Final image
+FROM scratch
+COPY --from=builder /out/ /
+ENTRYPOINT /bin/jq

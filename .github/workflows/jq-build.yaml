@@ -5,18 +5,12 @@ on:
       - 'jq-*'
 
 jobs:
-  publish_jq_images:
-    name: Release
+  prepare_env:
+    name: Prepare
     strategy:
       fail-fast: false
-      matrix:
-        flavour:
-          - ubuntu
-          - alpine
     runs-on: [ubuntu-latest]
     steps:
-      - uses: actions/checkout@v2
-
       - name: Prepare env
         uses: actions/github-script@v3
         with:
@@ -46,72 +40,78 @@ jobs:
             //   flant/jq:dec_literal_number-2353d034-alpine
             //   flant/jq:dec_literal_number-2353d034-ubuntu
             //
-            // Note: tag for docker image has 7 symbols suffix with OS name.
-            // So the string <build_id>-<JQ_GIT_SHA> will be truncated to 121 symbols.
+            // Note: tag for docker image may contain a maximum of 128 characters.
+            // The string <build_id> will be truncated to 80 symbols.
             // Also do not use / in git tag.
             //
             // Docker documentation:
             //   A tag name must be valid ASCII and may contain lowercase and uppercase letters,
             //   digits, underscores, periods and dashes. A tag name may not start with a period
             //   or a dash and may contain a maximum of 128 characters.
-  
+
             // Check tag format.
+            // TODO!
+            let ref = context.ref;
+            let gitTagRe = /^jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
+            let match = gitTagRe.exec(ref);
+            if (match === null) {
+              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]`);
+            }
 
-
-            // Strip jq- and -serial and get sha and buildId.
-
+            // Ignore jq- and -serial, save buildId and SHA.
+            // match[3] is always a git sha
+            // match[2] is build_id and can be undefined
+            let gitSha = match[2];
+            let buildId = match[3]?match[3]:"";
+            let dockerTag = buildId.substring(0, (buildId.length < 80) ? buildId.length : 80);
+            dockerTag = dockerTag === "" ? gitSha : `${dockerTag}-${gitSha}`;
 
             // Export variables for build action.
-            core.exportVariable("JQ_GIT_SHA", "b6be13d5")
-            core.exportVariable("BUILD_ID", "good-one")
-            core.exportVariable("DOCKER_TAG", "good-one-b6be13d5")
+            core.exportVariable("JQ_GIT_SHA", gitSha)
+            core.exportVariable("BUILD_ID", buildId)
+            core.exportVariable("DOCKER_TAG", dockerTag)
 
-      - name: Check exported vars
-        run: |
-          echo $JQ_GIT_SHA
-          echo $BUILD_ID
-          echo $DOCKER_TAG
+  publish_jq_images:
+    name: Release
+    strategy:
+      fail-fast: false
+      matrix:
+        flavour:
+          - ubuntu
+          - alpine
+    runs-on: [ubuntu-latest]
+    steps:
+      - uses: actions/checkout@v2
 
-      - name: Check
-        run: |
-          echo Check
-
-      - name: Build jq for '${{ matrix.flavour }}'
+      - name: Build jq image for '${{ matrix.flavour }}'
         env:
           FLAVOUR: ${{ matrix.flavour }}
           IMAGE_NAME: flant/jq
         run: |
-          echo Build $IMAGE_NAME:$DOCKER_TAG for $FLAVOUR from $JQ_GIT_SHA
-#          : Setup imageTag, appVersion and dockerFile envs and build image
-#          imageTag=
-#          appVersion=
-#          dockerFile=Dockerfile
-#
-#          if [[ ${GITHUB_REF} == "refs/heads/master" ]] ; then
-#            # master branch
-#            imageTag=${IMAGE_NAME}:latest
-#            appVersion=master-${GITHUB_SHA::8}-$FLAVOUR-$(date +'%Y.%m.%d_%H:%M:%S')
-#          else
-#            gitTag=${GITHUB_REF#refs/tags/}
-#            imageTag=${IMAGE_NAME}:${gitTag}
-#            appVersion=${gitTag}
-#          fi
-#
-#          case $FLAVOUR in
-#          alpine3.12)
-#            dockerFile="Dockerfile-alpine3.12"
-#            imageTag=${imageTag}-alpine3.12
-#            ;;
-#          esac
-#
-#          echo Build $imageTag with version $appVersion using ./$dockerFile
-#          docker build --build-arg appVersion=$appVersion -t $imageTag -f $dockerFile .
-#
-#          # save imageTag for docker push
-#          echo ::set-env name=imageTag::${imageTag}
+          echo JQ_GIT_SHA=$JQ_GIT_SHA
+          echo BUILD_ID=$BUILD_ID
+          echo DOCKER_TAG=$DOCKER_TAG
+
+          echo docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $IMAGE_NAME:$DOCKER_TAG -f Dockerfile-$FLAVOUR
+
+          exit 0
+
+          DOCKER_TAG=${DOCKER_TAG}-${{matrix.flavour}}
+          cd /scripts/jq-build
+
+          docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $IMAGE_NAME:$DOCKER_TAG -f Dockerfile-$FLAVOUR
+
+          mkdir -p out/libjq
+          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha out
+          ./extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha out
+          ./extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG ./out/libjq
+
+          find ./out
+
+          # TODO: Publish assets.
 
       - name: Push '${{ matrix.flavour }}' image
         run: |
-          echo Push $IMAGE_NAME:$DOCKER_TAG
+          echo Push $IMAGE_NAME:$DOCKER_TAG-${{matrix.flavour}}
 #          #docker login -u ${{ secrets.DOCKER_USER }} -p ${{ secrets.DOCKER_PASS }}
 #          #docker push $imageTag
