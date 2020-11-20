@@ -134,14 +134,14 @@ jobs:
           # TODO move to script create-assets.sh ???
 
           # extract checksum files
-          ./scripts/jq-build/extract-file.sh $IMAGE_NAME:$DOCKER_TAG /libjq.sha .
+          ./scripts/jq-build/extract-file.sh $PUSH_TAGS /libjq.sha .
           echo "LIBJQ_CHECKSUM_ARTIFACT=libjq.sha" >> $GITHUB_ENV
-          ./scripts/jq-build/extract-file.sh $IMAGE_NAME:$DOCKER_TAG /all.sha .
+          ./scripts/jq-build/extract-file.sh $PUSH_TAGS /all.sha .
           echo "ALL_CHECKSUM_ARTIFACT=all.sha" >> $GITHUB_ENV
 
           # create tgz with libjq
           mkdir -p ./libjq
-          ./scripts/jq-build/extract-libjq.sh $IMAGE_NAME:$DOCKER_TAG ./libjq
+          ./scripts/jq-build/extract-libjq.sh $PUSH_TAGS ./libjq
           LIBJQ_TGZ_ARTIFACT=libjq-${DOCKER_TAG}.tgz
           echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
           tar zxf $LIBJQ_TGZ_ARTIFACT libjq
