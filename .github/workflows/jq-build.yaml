@@ -56,6 +56,7 @@ jobs:
             let match = gitTagRe.exec(ref);
             if (match === null) {
               core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]`);
+              return;
             }
 
             // Ignore jq- and -serial, save buildId and SHA.
@@ -73,11 +74,12 @@ jobs:
 
   publish_jq_images:
     name: Release
+    needs: prepare_env
     strategy:
       fail-fast: false
       matrix:
         flavour:
-          - ubuntu
+          #- ubuntu
           - alpine
     runs-on: [ubuntu-latest]
     steps:
