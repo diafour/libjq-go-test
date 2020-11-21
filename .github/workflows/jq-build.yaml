@@ -42,6 +42,10 @@ jobs:
                 core.startGroup(`Found release '${release.name}' for tag '${release.tag_name}'...`)
                 console.log(JSON.stringify(release));
                 core.endGroup();
+
+                core.setOutput('id', release.id)
+                core.setOutput('upload_url', release.upload_url)
+
                 return release;
               }
               console.log(`Skip release '${release.name}' for tag '${release.tag_name}'`);
@@ -51,8 +55,9 @@ jobs:
 
       - name: release id consumer
         run: |
-          echo release id is ${{ steps.get_release.outputs.result.id }}
-          echo release upload_url is  ${{ steps.get_release.outputs.result.upload_url }}
+          echo release id is ${{ steps.get_release.outputs.id }}
+          echo release upload_url is  ${{ steps.get_release.outputs.upload_url }}
+          echo result is ${{ steps.get_release.outputs.result }}
           exit 1
 
   prepare_env:
