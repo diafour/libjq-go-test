@@ -99,22 +99,24 @@ jobs:
           for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
             echo "Platform $platform"
             # manifest can be one object or an array of objects.
-            ref=$(cat ./$manifest | jq --arg platform $platform '[.]|flatten|map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""')
+            ref=$(cat ./$manifest | jq -r --arg platform $platform '[.]|flatten|map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""')
             # Ignore platforms not found in manifest.
             if [[ $ref == "" ]] ; then
               continue
             fi
 
-            suffix=$(echo $platform | sed 's/\//-/g')
+            suffix=$(echo $platform | sed 's/\//-/g' | sed 's/linux-//')
             echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
+            echo ref=$ref
+            echo suffix=$suffix
 
             # Extract all checksum file.
-            ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /all.sha $assets/all-${{matrix.flavour}}-$suffix.sha
+            ./scripts/jq-build/extract-file.sh $ref /all.sha $assets/all-${{matrix.flavour}}-$suffix.sha
 
             # Create tgz with libjq.
             base_name=libjq-${{ matrix.flavour }}-$suffix
             mkdir -p ./${base_name}/libjq
-            ./scripts/jq-build/extract-libjq.sh $FINAL_IMAGE_NAME ./${base_name}/libjq
+            ./scripts/jq-build/extract-libjq.sh $ref ./${base_name}/libjq
             ( cd ./${base_name} && tar zcf ../$assets/${base_name}.tgz libjq )
 
             # Create tgz checksum

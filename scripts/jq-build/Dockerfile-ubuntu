@@ -11,14 +11,14 @@ RUN apt-get update && \
 RUN mkdir /app /jq /out
 
 COPY checkout.sh /app
-COPY build-linux.sh /app
+COPY build-unix.sh /app
 
 # Checkout jq commit.
 ARG JQ_GIT_SHA
 RUN /app/checkout.sh $JQ_GIT_SHA /jq
 
 # Build libjq and jq binary, create checksum file.
-RUN /app/build-linux.sh /jq /out
+RUN /app/build-unix.sh /jq /out
 
 # ============================
 #        Final image
