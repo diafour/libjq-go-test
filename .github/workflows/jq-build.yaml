@@ -13,6 +13,7 @@ jobs:
       fail-fast: false
     runs-on: [ubuntu-latest]
     steps:
+      - uses: actions/checkout@v2
       - name: Get release info
         id: get_release
         uses: actions/github-script@v3
@@ -20,7 +21,7 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
-            return script({github, context, core})
+            return await script({github, context, core})
 
       - name: release id consumer
         run: |
