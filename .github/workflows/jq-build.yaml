@@ -25,26 +25,36 @@ jobs:
               const allReleases = await github.repos.listReleases({
                   ...context.repo
               });
-              releases = allReleases.data;
-              console.log('releases', JSON.stringify(releases));
+              console.log(JSON.stringify(allReleases));
               core.endGroup();
+              releases = allReleases.data;
             }
             catch (error) {
               core.setFailed(`Fetch releases: ${error}`);
               return;
             }
 
-            for (let release of releases) {
-              console.log(release.name, release.id);
-              console.log('release', JSON.stringify(release));
+            let tagRe = /^\/refs\/tags/;
+            let tagName = context.ref.replace(tagRe, '');
 
-              //if (repo.name === this.release) {
-              //  return repo.id;
-              //}
+            console.log(`Find release '${tagName}' (${context.ref})`);
+
+            for (let release of releases) {
+              core.startGroup(`Dump release '${release.name}' for tag '${release.tagName}'...`)
+              console.log(JSON.stringify(release));
+              core.endGroup();
+
+              if (repo.tag_name === tagName) {
+                return repo;
+              }
             }
 
-            core.setFailed(`Stop`);
+            core.setFailed(`Release for tag ${ context.ref } is not found. Stop the workflow.`);
 
+      - name: release id consumer
+        run: |
+          echo release id ${{ steps.get_release.outputs.result.upload_url }}
+          exit 1
 
   prepare_env:
     name: Prepare
