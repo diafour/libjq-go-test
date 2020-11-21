@@ -31,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         flavour:
-          #- ubuntu
+          - ubuntu
           - alpine
     runs-on: [ubuntu-latest]
     steps:
@@ -98,7 +98,8 @@ jobs:
           # Extract assets for each platform
           for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
             echo "Platform $platform"
-            ref=$(cat ./$manifest | jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""')
+            # manifest can be one object or an array of objects.
+            ref=$(cat ./$manifest | jq --arg platform $platform '[.]|flatten|map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""')
             # Ignore platforms not found in manifest.
             if [[ $ref == "" ]] ; then
               continue
