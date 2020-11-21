@@ -34,26 +34,25 @@ jobs:
               return;
             }
 
-            let tagRe = /^\/refs\/tags/;
-            let tagName = context.ref.replace(tagRe, '');
-
+            let tagName = context.ref.replace('refs/tags/', '');
             console.log(`Find release '${tagName}' (${context.ref})`);
 
             for (let release of releases) {
-              core.startGroup(`Dump release '${release.name}' for tag '${release.tagName}'...`)
-              console.log(JSON.stringify(release));
-              core.endGroup();
-
-              if (repo.tag_name === tagName) {
-                return repo;
+              if (release.tag_name === tagName) {
+                core.startGroup(`Found release '${release.name}' for tag '${release.tag_name}'...`)
+                console.log(JSON.stringify(release));
+                core.endGroup();
+                return release;
               }
+              console.log(`Skip release '${release.name}' for tag '${release.tag_name}'`);
             }
 
             core.setFailed(`Release for tag ${ context.ref } is not found. Stop the workflow.`);
 
       - name: release id consumer
         run: |
-          echo release id ${{ steps.get_release.outputs.result.upload_url }}
+          echo release id is ${{ steps.get_release.outputs.result.id }}
+          echo release upload_url is  ${{ steps.get_release.outputs.result.upload_url }}
           exit 1
 
   prepare_env:
