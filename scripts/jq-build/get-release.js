@@ -1,5 +1,4 @@
-
-module.exports = async (github, context, core) => {
+async function getRelease(github, context, core) {
     let releases = [];
     try {
         core.startGroup('Getting list of releases...')
@@ -34,3 +33,6 @@ module.exports = async (github, context, core) => {
 
     core.setFailed(`Release for tag ${ context.ref } is not found. Stop the workflow.`);
 }
+
+
+module.exports = getRelease;
