@@ -21,7 +21,7 @@ jobs:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
             const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
-            return await script({github, context, core})
+            return await script(github, context, core)
 
       - name: release id consumer
         run: |
