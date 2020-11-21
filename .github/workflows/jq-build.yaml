@@ -5,91 +5,55 @@ on:
       - 'jq-*'
 env:
   DOCKER_REPO: diafour/jq
+  PLATFORMS: "linux/amd64,linux/arm64/v8,linux/arm/v7"
 
 jobs:
-  get_release_info:
-    name: Get release info
-    strategy:
-      fail-fast: false
+  extract_multiarch_assets:
+    name: Check tag format
     runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v2
-      - name: Get release info
-        id: get_release
-        uses: actions/github-script@v3
-        with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
-          script: |
-            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
-            return await script(github, context, core)
-
-      - name: release id consumer
+      - name: Extract assets from multiarch image
         run: |
-          echo release id is ${{ steps.get_release.outputs.id }}
-          echo release upload_url is  ${{ steps.get_release.outputs.upload_url }}
-          echo result is ${{ steps.get_release.outputs.result }}
+          apt-get install -y file jq
+
+          manifest=${{ matrix.flavour }}.manifest
+          docker manifest inspect --verbose $FINAL_IMAGE_NAME > ./$manifest
+          echo "::group::Manifest inspect"
+          cat ./$manifest
+          echo "::endgroup::"
+
+          for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
+            echo "Platform $platform"
+            ref=$(cat ./$manifest | jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""'
+            echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
+            suffix=$(echo $platform | sed 's/\//-/')
+            ./scripts/jq-build/extract-file.sh $ref /bin/busybox ./busybox-$suffix
+            file ./busybox-$suffix
+            echo "::endgroup::"
+          done
+
           exit 1
 
-  prepare_env:
-    name: Prepare
-    needs: get_release_info
 
-    strategy:
-      fail-fast: false
+  check_tag_format:
+    name: Check tag format
+    needs: extract_multiarch_assets
     runs-on: [ubuntu-latest]
     steps:
-      - name: Prepare env
+      - uses: actions/checkout@v2
+
+      - name: Check tag format
         uses: actions/github-script@v3
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            // Tag format should be:
-            //   jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]
-            // jq- is a prefix to distinguish jq image builds from libjq-go related actions.
-            // build_id is an optional custom suffix. It can be a branch name, YY.MM, YY.id, etc.
-            // JQ_GIT_SHA is a required 8 chars of commit sha.
-            // serial is an optional integer to create new unique git tag and thus rebuild the image.
-            //
-            // For example:
-            // 1. Simple build from commit.
-            //    jq-b6be13d5
-            //  The script will checkout commit b6be13d5 from stedolan/jq and build these images:
-            //   flant/jq:b6be13d5-alpine
-            //   flant/jq:b6be13d5-ubuntu
-            //
-            // 2. to rebuild jq-b6be13d5 in the future, add a serial:
-            //   jq-b6be13d5-0
-            // The script will build jq again and push updated images:
-            //   flant/jq:b6be13d5-alpine
-            //   flant/jq:b6be13d5-ubuntu
-            //
-            // 3. Commit is not human friendly, so use build_id as a description:
-            //   jq-dec_literal_number-2353d034-0
-            // The script will checkout tag 'jq-1.6' from stedolan/jq and build these images:
-            //   flant/jq:dec_literal_number-2353d034-alpine
-            //   flant/jq:dec_literal_number-2353d034-ubuntu
-            //
-            // Note: tag for docker image may contain a maximum of 128 characters.
-            // The string <build_id> will be truncated to 80 symbols.
-            // Also do not use / in git tag.
-            //
-            // Docker documentation:
-            //   A tag name must be valid ASCII and may contain lowercase and uppercase letters,
-            //   digits, underscores, periods and dashes. A tag name may not start with a period
-            //   or a dash and may contain a maximum of 128 characters.
+            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/prepare.js`)
+            script.checkTagFormat(github, context, core)
 
-            // Check tag format. Fail the job if tag is not in shape.
-            let ref = context.ref;
-            let gitTagRe = /^refs\/tags\/jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
-            let match = gitTagRe.exec(ref);
-            if (match === null) {
-              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]. See .github/workflows/jq-build.yaml`);
-              return;
-            }
-
-  publish_jq_images:
-    name: Release
-    needs: prepare_env
+  release_jq_images:
+    name: Release jq images
+    needs: check_tag_format
     strategy:
       fail-fast: false
       matrix:
@@ -100,38 +64,18 @@ jobs:
     steps:
       - uses: actions/checkout@v2
 
-      - name: Prepare env
+      - name: Prepare build env
         uses: actions/github-script@v3
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            // No variable export between jobs, so copy-paste from Prepare job.
-            // Check tag format. Fail the job if tag is not in shape.
-            let ref = context.ref;
-            let gitTagRe = /^refs\/tags\/jq(-([\da-zA-Z][\da-zA-Z_\-.]*))?-([0-9a-fA-F]{8})(-(\d+))?$/;
-            let match = gitTagRe.exec(ref);
-            if (match === null) {
-              core.setFailed(`Git tag ${ref} is not suitable for jq build. It should be jq-[<build_id>-]<JQ_GIT_SHA>[-<serial>]. See .github/workflows/jq-build.yaml`);
-              return;
-            }
-
-            // Ignore jq- and -serial, save buildId and SHA.
-            // match[3] is always a git sha
-            // match[2] is build_id and can be undefined
-            let gitSha = match[3];
-            let buildId = match[2]?match[2]:"";
-            let dockerTag = buildId.substring(0, (buildId.length < 80) ? buildId.length : 80);
-            dockerTag = dockerTag === "" ? gitSha : `${dockerTag}-${gitSha}`;
-
-            // Export variables for build action.
-            core.exportVariable("JQ_GIT_SHA", gitSha)
-            core.exportVariable("BUILD_ID", buildId)
-            core.exportVariable("DOCKER_TAG", dockerTag)
+            // Prepare JQ_GIT_SHA and DOCKER_TAG envs
+            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/prepare.js`)
+            return script.prepareEnvsForBuild(github, context, core)
 
       - name: Build '${{ matrix.flavour }}' jq image
         run: |
-          DOCKER_TAG=${DOCKER_TAG}-${{matrix.flavour}}
-          FINAL_IMAGE_NAME=$DOCKER_REPO:$DOCKER_TAG
+          FINAL_IMAGE_NAME=$DOCKER_REPO:${DOCKER_TAG}-${{matrix.flavour}}
           echo FINAL_IMAGE_NAME=$FINAL_IMAGE_NAME
           echo "FINAL_IMAGE_NAME=${FINAL_IMAGE_NAME}" >> $GITHUB_ENV
 
@@ -153,18 +97,37 @@ jobs:
 
       - name: Extract '${{ matrix.flavour }}' assets
         run: |
-          # TODO move to script create-assets.sh ???
+          apt-get install -y file jq
 
-          # extract checksum files
-          ./scripts/jq-build/extract-file.sh $DOCKER_TAGS /libjq.sha .
-          echo "LIBJQ_CHECKSUM_ARTIFACT=libjq.sha" >> $GITHUB_ENV
-          ./scripts/jq-build/extract-file.sh $DOCKER_TAGS /all.sha .
-          echo "ALL_CHECKSUM_ARTIFACT=all.sha" >> $GITHUB_ENV
+          manifest=${{ matrix.flavour }}.manifest
+          docker manifest inspect --verbose $FINAL_IMAGE_NAME > ./$manifest
 
-          # create tgz with libjq
+          for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
+            ref=$(jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""'
+            echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
+            suffix=$(echo $platform | sed 's/\//-/')
+            ./scripts/jq-build/extract-file.sh $ref /bin/busybox ./busybox-$suffix
+            file ./busybox-$suffix
+            echo "::endgroup::"
+          done
+
+          # Get Refs from multiarch
+          # jq --arg platforms "linux/amd64,linux/arm64/v8,linux/arm/v7" 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") | in($platforms|split(",")|map({"key":., "value":true})|from_entries) ))'
+
+          # Extract all checksum file.
+          ALL_CHECKSUM_ARTIFACT=all-${{ matrix.flavour }}.sha
+          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /all.sha ./$ALL_CHECKSUM_ARTIFACT
+          echo "ALL_CHECKSUM_ARTIFACT=$ALL_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
+
+          # Extract libjq checksum file.
+          LIBJQ_CHECKSUM_ARTIFACT=libjq-${{ matrix.flavour }}.sha
+          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /libjq.sha ./$LIBJQ_CHECKSUM_ARTIFACT
+          echo "LIBJQ_CHECKSUM_ARTIFACT=$LIBJQ_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
+
+          # Create tgz with libjq.
           mkdir -p ./libjq
-          ./scripts/jq-build/extract-libjq.sh $PUSH_TAGS ./libjq
-          LIBJQ_TGZ_ARTIFACT=libjq-${DOCKER_TAG}.tgz
+          ./scripts/jq-build/extract-libjq.sh $FINAL_IMAGE_NAME ./libjq
+          LIBJQ_TGZ_ARTIFACT=libjq-${{ matrix.flavour }}.tgz
           echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
           tar zcf $LIBJQ_TGZ_ARTIFACT libjq
 
@@ -174,41 +137,25 @@ jobs:
         with:
           github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            let releases = [];
-            try {
-              core.startGroup('Getting list of releases...')
-              const allReleases = await this.github.repos.listReleases({
-                  ...context.repo
-              });
-              releases = allReleases.data;
-              console.log('releases', releases);
-              core.endGroup();
-            }
-            catch (error) {
-              core.setFailed(`Fetch releases: ${error}`);
-              return;
-            }
+            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
+            return await script(github, context, core)
 
-            for (let release of releases) {
-              console.log(release.name, release.id);
-              console.log('release', release);
-
-
-              //if (repo.name === this.release) {
-              //  return repo.id;
-              //}
-            }
-
-      - name: Create release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ github.ref }}
-          release_name: jq+libjq build ${{ github.ref }}
-          draft: false
-          prerelease: false
+#      - name: release id consumer
+#        run: |
+#          echo release id is ${{ steps.get_release.outputs.id }}
+#          echo release upload_url is  ${{ steps.get_release.outputs.upload_url }}
+#          echo result is ${{ steps.get_release.outputs.result }}
+#          exit 1
+#      - name: Create release
+#        id: create_release
+#        uses: actions/create-release@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          tag_name: ${{ github.ref }}
+#          release_name: jq+libjq build ${{ github.ref }}
+#          draft: false
+#          prerelease: false
 
       - name: Upload all checksum for '${{ matrix.flavour }}'
         id: upload-all-checksum-asset
@@ -216,7 +163,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_path: ./${{ env.ALL_CHECKSUM_ARTIFACT }}
           asset_name: ${{ env.ALL_CHECKSUM_ARTIFACT }}
           asset_content_type: text/plain
@@ -227,7 +174,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_path: ./${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
           asset_name: ${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
           asset_content_type: text/plain
@@ -238,7 +185,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          upload_url: ${{ steps.get_release.outputs.upload_url }}
           asset_path: ./${{ env.LIBJQ_TGZ_ARTIFACT }}
           asset_name: ${{ env.LIBJQ_TGZ_ARTIFACT }}
           asset_content_type: application/gzip
