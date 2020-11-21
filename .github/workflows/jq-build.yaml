@@ -22,7 +22,7 @@ jobs:
             let releases = [];
             try {
               core.startGroup('Getting list of releases...')
-              const allReleases = await this.github.repos.listReleases({
+              const allReleases = await github.repos.listReleases({
                   ...context.repo
               });
               releases = allReleases.data;
