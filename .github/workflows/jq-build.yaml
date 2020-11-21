@@ -39,8 +39,8 @@ jobs:
 
 
           # docker manifest is long operation, so save manifest to file
-          manifest=${{ matrix.flavour }}.manifest
-          docker manifest inspect --verbose $FINAL_IMAGE_NAME > ./$manifest
+          manifest=${{ matrix.flavour }}-manifest.json
+          docker manifest inspect --verbose alpine:3.12 > ./$manifest
           echo "::group::Manifest inspect"
           cat ./$manifest
           echo "::endgroup::"
