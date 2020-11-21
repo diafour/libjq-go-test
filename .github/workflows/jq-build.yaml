@@ -8,61 +8,10 @@ env:
   PLATFORMS: "linux/amd64,linux/arm64/v8,linux/arm/v7"
 
 jobs:
-  extract_multiarch_assets:
-    name: Exttract multiarch assets test
-    runs-on: [ubuntu-latest]
-    steps:
-      - uses: actions/checkout@v2
-
-#      - name: Set up QEMU
-#        uses: docker/setup-qemu-action@v1
-#        with:
-#          platforms: "arm64,arm"
-
-      - name: Set up Docker Buildx
-        id: buildx
-        uses: docker/setup-buildx-action@v1
-        with:
-          version: latest
-
-      - name: Extract assets from multiarch image
-        run: |
-          sudo apt-get install -y file jq
-
-          cat $HOME/.docker/config.json | jq '.experimental="enabled"' | sudo tee $HOME/.docker/config.json
-
-          #cat /etc/docker/daemon.json
-          #echo "Enable Docker experimental features"
-          #sudo rm -rf /etc/docker/daemon.json
-          #echo '{"experimental": true}' | sudo tee -a /etc/docker/daemon.json
-          #sudo systemctl restart docker
-
-
-          # docker manifest is long operation, so save manifest to file
-          manifest=${{ matrix.flavour }}-manifest.json
-          docker manifest inspect --verbose alpine:3.12 > ./$manifest
-          echo "::group::Manifest inspect"
-          cat ./$manifest
-          echo "::endgroup::"
-
-          for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
-            echo "Platform $platform"
-            ref=$(cat ./$manifest | jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""'
-            echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
-            suffix=$(echo $platform | sed 's/\//-/')
-            ./scripts/jq-build/extract-file.sh $ref /bin/busybox ./busybox-$suffix
-            file ./busybox-$suffix
-            echo "::endgroup::"
-          done
-
-      - name: Stop
-        run: |
-          exit 1
-
 
   check_tag_format:
     name: Check tag format
-    needs: extract_multiarch_assets
+    #needs: extract_multiarch_assets
     runs-on: [ubuntu-latest]
     steps:
       - uses: actions/checkout@v2
@@ -82,7 +31,7 @@ jobs:
       fail-fast: false
       matrix:
         flavour:
-          - ubuntu
+          #- ubuntu
           - alpine
     runs-on: [ubuntu-latest]
     steps:
@@ -96,6 +45,13 @@ jobs:
             // Prepare JQ_GIT_SHA and DOCKER_TAG envs
             const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/prepare.js`)
             return script.prepareEnvsForBuild(github, context, core)
+
+#      - name: Set up Docker Buildx
+#        id: buildx
+#        uses: docker/setup-buildx-action@v1
+#        with:
+#          version: latest
+
 
       - name: Build '${{ matrix.flavour }}' jq image
         run: |
@@ -119,50 +75,127 @@ jobs:
           echo Push "'$FINAL_IMAGE_NAME'"
           docker push $FINAL_IMAGE_NAME
 
-      - name: Extract '${{ matrix.flavour }}' assets
+      - name: Extract assets from multiarch image
         run: |
-          apt-get install -y file jq
+          # ubuntu-latest already have file and jq:
+          #   jq is already the newest version (1.5+dfsg-2).
+          #   file is already the newest version (1:5.32-2ubuntu0.4).
+          #sudo apt-get install -y file jq
 
-          manifest=${{ matrix.flavour }}.manifest
+          # Set experimental flag to 'enabled' in docker cli configuration
+          cat $HOME/.docker/config.json | jq '.experimental="enabled"' | sudo tee $HOME/.docker/config.json
+
+          # docker manifest is a long operation, so save manifest to file.
+          manifest=${{ matrix.flavour }}-manifest.json
           docker manifest inspect --verbose $FINAL_IMAGE_NAME > ./$manifest
+          echo "::group::Manifest inspect"
+          cat ./$manifest
+          echo "::endgroup::"
 
+          assets=./${{matrix.flavour}}
+          mkdir -p $assets
+
+          # Extract assets for each platform
           for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
-            ref=$(jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""'
+            echo "Platform $platform"
+            ref=$(cat ./$manifest | jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""')
+            # Ignore platforms not found in manifest.
+            if [[ $ref == "" ]] ; then
+              continue
+            fi
+
+            suffix=$(echo $platform | sed 's/\//-/g')
             echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
-            suffix=$(echo $platform | sed 's/\//-/')
-            ./scripts/jq-build/extract-file.sh $ref /bin/busybox ./busybox-$suffix
-            file ./busybox-$suffix
+
+            # Extract all checksum file.
+            ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /all.sha $assets/all-${{matrix.flavour}}-$suffix.sha
+
+            # Create tgz with libjq.
+            base_name=libjq-${{ matrix.flavour }}-$suffix
+            mkdir -p ./${base_name}/libjq
+            ./scripts/jq-build/extract-libjq.sh $FINAL_IMAGE_NAME ./${base_name}/libjq
+            ( cd ./${base_name} && tar zcf ../$assets/${base_name}.tgz libjq )
+
+            # Create tgz checksum
+            ( cd $assets && sha256sum $tgzFile > libjq-${{ matrix.flavour }}-$suffix.sha )
+
             echo "::endgroup::"
           done
 
-          # Get Refs from multiarch
-          # jq --arg platforms "linux/amd64,linux/arm64/v8,linux/arm/v7" 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") | in($platforms|split(",")|map({"key":., "value":true})|from_entries) ))'
-
-          # Extract all checksum file.
-          ALL_CHECKSUM_ARTIFACT=all-${{ matrix.flavour }}.sha
-          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /all.sha ./$ALL_CHECKSUM_ARTIFACT
-          echo "ALL_CHECKSUM_ARTIFACT=$ALL_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
-
-          # Extract libjq checksum file.
-          LIBJQ_CHECKSUM_ARTIFACT=libjq-${{ matrix.flavour }}.sha
-          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /libjq.sha ./$LIBJQ_CHECKSUM_ARTIFACT
-          echo "LIBJQ_CHECKSUM_ARTIFACT=$LIBJQ_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
-
-          # Create tgz with libjq.
-          mkdir -p ./libjq
-          ./scripts/jq-build/extract-libjq.sh $FINAL_IMAGE_NAME ./libjq
-          LIBJQ_TGZ_ARTIFACT=libjq-${{ matrix.flavour }}.tgz
-          echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
-          tar zcf $LIBJQ_TGZ_ARTIFACT libjq
-
-      - name: Get release info
-        id: get_release
-        uses: actions/github-script@v3
+      - name: Upload release binaries
+        uses: alexellis/upload-assets@0.2.3
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
-          script: |
-            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
-            return await script(github, context, core)
+          asset_paths: '["./${{matrix.flavour}}/*"]'
+
+      # One arch build and  extraction
+#      - name: Build '${{ matrix.flavour }}' jq image
+#        run: |
+#          FINAL_IMAGE_NAME=$DOCKER_REPO:${DOCKER_TAG}-${{matrix.flavour}}
+#          echo FINAL_IMAGE_NAME=$FINAL_IMAGE_NAME
+#          echo "FINAL_IMAGE_NAME=${FINAL_IMAGE_NAME}" >> $GITHUB_ENV
+#
+#          DOCKERFILE=Dockerfile-${{ matrix.flavour }}
+#
+#          cd ${GITHUB_WORKSPACE}/scripts/jq-build
+#          docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $FINAL_IMAGE_NAME -f $DOCKERFILE
+#
+#      - name: Login to DockerHub
+#        uses: docker/login-action@v1
+#        with:
+#          username: ${{ secrets.DOCKER_USER }}
+#          password: ${{ secrets.DOCKER_PASS }}
+#
+#      - name: Push '${{ matrix.flavour }}' image
+#        run: |
+#          echo Push "'$FINAL_IMAGE_NAME'"
+#          docker push $FINAL_IMAGE_NAME
+
+#      - name: Extract '${{ matrix.flavour }}' assets
+#        run: |
+#          apt-get install -y file jq
+#
+#          manifest=${{ matrix.flavour }}.manifest
+#          docker manifest inspect --verbose $FINAL_IMAGE_NAME > ./$manifest
+#
+#          for platform in $(echo $PLATFORMS | sed 's/,/\ /g' ) ; do
+#            ref=$(jq --arg platform $platform 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") == $platform )) | .[0].Ref // ""'
+#            echo "::group::Extract '${{matrix.flavour}}' assets for '$platform' platform"
+#            suffix=$(echo $platform | sed 's/\//-/')
+#            ./scripts/jq-build/extract-file.sh $ref /bin/busybox ./busybox-$suffix
+#            file ./busybox-$suffix
+#            echo "::endgroup::"
+#          done
+#
+#          # Get Refs from multiarch
+#          # jq --arg platforms "linux/amd64,linux/arm64/v8,linux/arm/v7" 'map(select(.Descriptor.platform| [.os,.architecture,.variant]| map(select(.))| join("/") | in($platforms|split(",")|map({"key":., "value":true})|from_entries) ))'
+#
+#          # Extract all checksum file.
+#          ALL_CHECKSUM_ARTIFACT=all-${{ matrix.flavour }}.sha
+#          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /all.sha ./$ALL_CHECKSUM_ARTIFACT
+#          echo "ALL_CHECKSUM_ARTIFACT=$ALL_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
+#
+#          # Extract libjq checksum file.
+#          LIBJQ_CHECKSUM_ARTIFACT=libjq-${{ matrix.flavour }}.sha
+#          ./scripts/jq-build/extract-file.sh $FINAL_IMAGE_NAME /libjq.sha ./$LIBJQ_CHECKSUM_ARTIFACT
+#          echo "LIBJQ_CHECKSUM_ARTIFACT=$LIBJQ_CHECKSUM_ARTIFACT" >> $GITHUB_ENV
+#
+#          # Create tgz with libjq.
+#          mkdir -p ./libjq
+#          ./scripts/jq-build/extract-libjq.sh $FINAL_IMAGE_NAME ./libjq
+#          LIBJQ_TGZ_ARTIFACT=libjq-${{ matrix.flavour }}.tgz
+#          echo "LIBJQ_TGZ_ARTIFACT=$LIBJQ_TGZ_ARTIFACT" >> $GITHUB_ENV
+#          tar zcf $LIBJQ_TGZ_ARTIFACT libjq
+#
+#      - name: Get release info
+#        id: get_release
+#        uses: actions/github-script@v3
+#        with:
+#          github-token: ${{secrets.GITHUB_TOKEN}}
+#          script: |
+#            const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/get-release.js`)
+#            return await script(github, context, core)
 
 #      - name: release id consumer
 #        run: |
@@ -181,36 +214,47 @@ jobs:
 #          draft: false
 #          prerelease: false
 
-      - name: Upload all checksum for '${{ matrix.flavour }}'
-        id: upload-all-checksum-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./${{ env.ALL_CHECKSUM_ARTIFACT }}
-          asset_name: ${{ env.ALL_CHECKSUM_ARTIFACT }}
-          asset_content_type: text/plain
+#      - name: Upload all checksum for '${{ matrix.flavour }}'
+#        id: upload-all-checksum-asset
+#        uses: actions/upload-release-asset@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          upload_url: ${{ steps.get_release.outputs.upload_url }}
+#          asset_path: ./${{ env.ALL_CHECKSUM_ARTIFACT }}
+#          asset_name: ${{ env.ALL_CHECKSUM_ARTIFACT }}
+#          asset_content_type: text/plain
+#
+#      - name: Upload libjq checksum for '${{ matrix.flavour }}'
+#        id: upload-checksum-asset
+#        uses: actions/upload-release-asset@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          upload_url: ${{ steps.get_release.outputs.upload_url }}
+#          asset_path: ./${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
+#          asset_name: ${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
+#          asset_content_type: text/plain
+#
+#      - name: Upload libjq archive for '${{ matrix.flavour }}'
+#        id: upload-libjq-tgz-asset
+#        uses: actions/upload-release-asset@v1
+#        env:
+#          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+#        with:
+#          upload_url: ${{ steps.get_release.outputs.upload_url }}
+#          asset_path: ./${{ env.LIBJQ_TGZ_ARTIFACT }}
+#          asset_name: ${{ env.LIBJQ_TGZ_ARTIFACT }}
+#          asset_content_type: application/gzip
 
-      - name: Upload libjq checksum for '${{ matrix.flavour }}'
-        id: upload-checksum-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
-          asset_name: ${{ env.LIBJQ_CHECKSUM_ARTIFACT }}
-          asset_content_type: text/plain
+#  extract_multiarch_assets:
+#    name: Exttract multiarch assets test
+#    runs-on: [ubuntu-latest]
+#    steps:
+#      - uses: actions/checkout@v2
 
-      - name: Upload libjq archive for '${{ matrix.flavour }}'
-        id: upload-libjq-tgz-asset
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ steps.get_release.outputs.upload_url }}
-          asset_path: ./${{ env.LIBJQ_TGZ_ARTIFACT }}
-          asset_name: ${{ env.LIBJQ_TGZ_ARTIFACT }}
-          asset_content_type: application/gzip
+      #      - name: Set up QEMU
+      #        uses: docker/setup-qemu-action@v1
+      #        with:
+      #          platforms: "arm64,arm"
 
