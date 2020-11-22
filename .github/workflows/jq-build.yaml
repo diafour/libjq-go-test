@@ -4,7 +4,7 @@ on:
     tags:
       - 'jq-*'
 env:
-  DOCKER_REPO: diafour/jq
+  DOCKER_REPO: flant/jq
   # It should be linux/arm64/v8, but buildx is not set variant for this architecture.
   PLATFORMS: "linux/amd64,linux/arm64,linux/arm/v7"
 
