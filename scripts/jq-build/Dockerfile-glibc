@@ -1,22 +1,16 @@
 # ============================
 #        Builder
 # ============================
-FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:3.12 as builder
+FROM  --platform=${TARGETPLATFORM:-linux/amd64} debian:buster as builder
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    DEBCONF_NONINTERACTIVE_SEEN=true \
+    LC_ALL=C.UTF-8 \
+    LANG=C.UTF-8
 
 # Install build dependencies.
-RUN apk update && \
-    apk add --virtual build-dependencies \
-            build-base \
-            gcc \
-            wget \
-            git \
-            autoconf \
-            automake && \
-    apk add --virtual jq-deps \
-            bison \
-            flex \
-            libtool && \
-    apk add bash
+RUN apt-get update && \
+    apt-get install -y build-essential autoconf automake libtool git bison flex wget
 
 # Create directories for scripts, jq sources and output.
 RUN mkdir /app /jq /out
@@ -36,4 +30,4 @@ RUN /app/build-unix.sh /jq /out
 # ============================
 FROM scratch
 COPY --from=builder /out/ /
-ENTRYPOINT /bin/jq
+ENTRYPOINT ["/bin/jq"]

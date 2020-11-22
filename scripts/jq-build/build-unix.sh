@@ -53,6 +53,8 @@ cp modules/oniguruma/src/.libs/libonig.* $OUT/lib
 # copy bin/jq and docs
 make install
 
+strip $OUT/bin/jq
+
 # Report jq version and a test.
 echo "===================================="
 echo "   JQ"
@@ -89,8 +91,3 @@ echo "   files in $OUT:"
 echo "===================================="
 find $OUT -exec ls -lad {} \;
 echo "===================================="
-
-#echo "Use these flags with go build:"
-#echo "CGO_CFLAGS=-I${out}/include"
-#echo "CGO_LDFLAGS=-L${out}/lib"
-
