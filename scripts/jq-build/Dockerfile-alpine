@@ -1,5 +1,9 @@
-FROM alpine:3.12 as builder
+# ============================
+#        Builder
+# ============================
+FROM --platform=${TARGETPLATFORM:-linux/amd64} alpine:3.12 as builder
 
+# Install build dependencies.
 RUN apk update && \
     apk add --virtual build-dependencies \
             build-base \
@@ -14,20 +18,22 @@ RUN apk update && \
             libtool && \
     apk add bash
 
-# create directories for scripts, jq sources and output
+# Create directories for scripts, jq sources and output.
 RUN mkdir /app /jq /out
 
 COPY checkout.sh /app
 COPY build-unix.sh /app
 
-# Checkout jq commit
+# Checkout jq commit.
 ARG JQ_GIT_SHA
 RUN /app/checkout.sh $JQ_GIT_SHA /jq
 
-# build libjq and jq binary
+# Build libjq and jq binary, create checksum file in /out.
 RUN /app/build-unix.sh /jq /out
 
-# Final image
+# ============================
+#        Final image
+# ============================
 FROM scratch
 COPY --from=builder /out/ /
 ENTRYPOINT /bin/jq

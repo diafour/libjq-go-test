@@ -8,7 +8,6 @@ env:
   PLATFORMS: "linux/amd64,linux/arm64/v8,linux/arm/v7"
 
 jobs:
-
   check_tag_format:
     name: Check tag format
     #needs: extract_multiarch_assets
@@ -31,7 +30,7 @@ jobs:
       fail-fast: false
       matrix:
         flavour:
-          - ubuntu
+          - buster
           - alpine
     runs-on: [ubuntu-latest]
     steps:
@@ -46,12 +45,22 @@ jobs:
             const script = require(`${process.env.GITHUB_WORKSPACE}/scripts/jq-build/prepare.js`)
             return script.prepareEnvsForBuild(github, context, core)
 
-#      - name: Set up Docker Buildx
-#        id: buildx
-#        uses: docker/setup-buildx-action@v1
-#        with:
-#          version: latest
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v1
+        with:
+          platforms: "arm64,arm"
 
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v1
+        with:
+          version: latest
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USER }}
+          password: ${{ secrets.DOCKER_PASS }}
 
       - name: Build '${{ matrix.flavour }}' jq image
         run: |
@@ -62,18 +71,16 @@ jobs:
           DOCKERFILE=Dockerfile-${{ matrix.flavour }}
 
           cd ${GITHUB_WORKSPACE}/scripts/jq-build
-          docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $FINAL_IMAGE_NAME -f $DOCKERFILE
 
-      - name: Login to DockerHub
-        uses: docker/login-action@v1
-        with:
-          username: ${{ secrets.DOCKER_USER }}
-          password: ${{ secrets.DOCKER_PASS }}
+          echo "::group::Build multi-arch image"
+          docker buildx build --push \
+              --platform $PLATFORMS \
+              --build-arg JQ_GIT_SHA=$JQ_GIT_SHA \
+              --tag $FINAL_IMAGE_NAME \
+              --file $DOCKERFILE .
+          echo "::endgroup::"
 
-      - name: Push '${{ matrix.flavour }}' image
-        run: |
-          echo Push "'$FINAL_IMAGE_NAME'"
-          docker push $FINAL_IMAGE_NAME
+          # docker build . --build-arg JQ_GIT_SHA=$JQ_GIT_SHA -t $FINAL_IMAGE_NAME -f $DOCKERFILE
 
       - name: Extract assets from multiarch image
         run: |

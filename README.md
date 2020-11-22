@@ -70,8 +70,7 @@ CGO_ENABLED=1 CGO_CFLAGS="${LIBJQ_CFLAGS}" CGO_LDFLAGS="${LIBJQ_LDFLAGS}" go bui
 
 2. Docker build
 
-If you want to build your program with docker, you can build oniguruma and jq in artifact image and then copy them to go builder image. See example of this approach in [Dockerfile](https://github.com/flant/shell-operator/blob/master/Dockerfile) of a shell-operator — the real project that use this library.
-
+If you want to build your program with docker, you can build oniguruma and jq in artifact image as stated in local build and then copy them to go builder image. Or you can use pre-built jq static libraries image. See Dockerfile in [example](./example/Dockerfile) or [examples/docker-static-build](./examples/docker-static-build/Dockerfile). Also see [Dockerfile](https://github.com/flant/shell-operator/blob/master/Dockerfile) in a shell-operator project.
 
 ## jq source compatibility and jq 1.6 performance
 
@@ -84,6 +83,17 @@ Which commit should you choose? Take these considerations into account:
 - latest master have problem with `fromjson` and `tonumber` [stedolan/jq#2091](https://github.com/stedolan/jq/issues/2091).
 - [stedolan/jq@b6be13d](https://github.com/stedolan/jq/commit/b6be13d5de6dd7d8aad5fd871eb6b0b30fc7d7f6) is a commit that is later than jq-1.6, works fast and correctly handles errors in `fromjson`.
 
+## Go compatibility
+
+libjq-go module tested with Go 1.11 and later versions.
+
+## jq prebuilt images
+
+For faster builds we publish prebuilt libraries in [flant/jq](https://hub.docker.com/repository/docker/flant/jq) repository on hub.docker.com. Also, there are assets in jq-* [releases](https://github.com/flant/libjq-go/releases) in this repo on github.
+
+`buster` build is known to work in debian:stretch, debian:buster, ubuntu:18.04, ubuntu:20.04.
+
+`alpine` build is known to work in alpine:3.9+ (You can produce binaries using `golang:1.11-alpine3.9` image!)
 
 ## Inspired projects
 
